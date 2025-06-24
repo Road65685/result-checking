@@ -1,37 +1,132 @@
-Appwrite Functions with Dart
-Appwrite Functions allow you to run server-side code in response to events (like a new user signing up, a document being created, or on a schedule) or by direct HTTP request. You can write these functions in various languages, including Dart.
-
-How it Works
-Write your Dart code: Your Dart function will receive input via environment variables (APPWRITE_FUNCTION_DATA) or stdin (for POST requests).
-
-Process the data: Perform any logic, calculations, or external API calls.
-
-Return JSON: The function should print its output to stdout. Appwrite automatically captures this output. If it's valid JSON, Appwrite will treat it as a JSON response.
-
-Example Dart Function
-Let's create a simple Dart function that takes a name as input, processes it (e.g., adds a greeting), and returns a JSON object.
-
-// main.dart
 import 'dart:io';
 import 'dart:convert'; // Required for JSON encoding
+import 'package:http/http.dart' as http;
+import 'package:html/parser.dart' show parse;
+import 'package:html/dom.dart';
 
-void main() {
-  // Read the request data from the environment variable (for GET/CLI invocation)
-  // or from stdin (for POST requests with a body).
-  // Appwrite typically passes data for GET/CLI via APPWRITE_FUNCTION_DATA.
-  // For POST requests, the body is piped to stdin.
+/// Function to search for specific text within a designated section of a website's HTML.
+///
+/// [url]: The URL of the website to fetch HTML from.
+/// [searchText]: The specific text to search for (e.g., "Electrical Power System").
+/// [sectionIdentifier]: The text that identifies the desired section (e.g., "Winter 2024").
+///
+/// Returns `true` if the [searchText] is found within the identified [sectionIdentifier],
+/// `false` otherwise, or if any error occurs.
+Future<bool> searchTextInWebsiteHtml(String url, String searchText, String sectionIdentifier) async {
+  try {
+    // 1. Fetch the HTML content from the given URL
+    final response = await http.get(Uri.parse(url));
 
-  String? inputData;
+    // Check if the request was successful (status code 200)
+    if (response.statusCode == 200) {
+      // 2. Parse the HTML content
+      final Document document = parse(response.body);
 
-  // Try to read from APPWRITE_FUNCTION_DATA environment variable first
-  inputData = Platform.environment['APPWRITE_FUNCTION_DATA'];
+      String sectionContent = '';
+      bool sectionFound = false;
 
-  // If not found in environment, try reading from stdin (for POST requests)
+      // 3. Iterate through all elements to find the section identifier
+      // We are looking for any element whose text content contains the sectionIdentifier.
+      // This is a robust way to find a section without knowing its exact tag or class.
+      for (final element in document.querySelectorAll('*')) {
+        if (element.text.toLowerCase().contains(sectionIdentifier.toLowerCase())) {
+          // If the section is found, capture its entire text content (including children's text)
+          sectionContent = element.text;
+          sectionFound = true;
+          stderr.writeln('Found section: "$sectionIdentifier". Extracting content for further search.'); // Use stderr for logs
+          // Once the section is found, we can break the loop
+          break;
+        }
+      }
+
+      if (!sectionFound) {
+        stderr.writeln('Section "$sectionIdentifier" not found on the page.'); // Use stderr for logs
+        return false;
+      }
+
+      // 4. Search for the specified text within the content of the identified section
+      // We'll convert both to lowercase to make the search case-insensitive
+      if (sectionContent.toLowerCase().contains(searchText.toLowerCase())) {
+        stderr.writeln('Found "$searchText" within the "$sectionIdentifier" section.'); // Use stderr for logs
+        return true;
+      } else {
+        stderr.writeln('"$searchText" not found within the "$sectionIdentifier" section.'); // Use stderr for logs
+        return false;
+      }
+    } else {
+      // Handle HTTP error status codes
+      stderr.writeln('Failed to load page: ${response.statusCode}. Status: ${response.statusCode}'); // Use stderr for logs
+      return false;
+    }
+  } catch (e) {
+    // Handle any other errors (e.g., network issues, invalid URL)
+    stderr.writeln('An error occurred: $e'); // Use stderr for logs
+    return false;
+  }
+}
+
+/// A standalone function to find specific <a> tags within a <div> identified by its ID.
+///
+/// [url]: The URL of the website to fetch HTML from.
+/// [divId]: The ID of the <div> element to search within (e.g., "v-pills-all-1").
+/// [linkTextToFind]: The partial or exact text content of the <a> tags to find (e.g., "Fifth Semester").
+///
+/// Returns a `List<Element>` containing all <a> tags that match the criteria.
+/// Returns an empty list if the div is not found, or no matching links are found, or an error occurs.
+Future<List<Element>> findSpecificLinksInDiv(String url, String divId, String linkTextToFind) async {
+  try {
+    // 1. Fetch the HTML content from the given URL
+    final response = await http.get(Uri.parse(url));
+
+    // Check if the request was successful (status code 200)
+    if (response.statusCode == 200) {
+      // 2. Parse the HTML content
+      final Document document = parse(response.body);
+
+      // 3. Find the div element by its ID
+      final Element? targetDiv = document.getElementById(divId);
+
+      if (targetDiv == null) {
+        stderr.writeln('Div with ID "$divId" not found on the page.'); // Use stderr for logs
+        return []; // Return empty list if div not found
+      }
+
+      // 4. Find all <a> tags within the target div
+      // .querySelectorAll('a') will find all <a> descendants of targetDiv
+      final List<Element> allAnchorTagsInDiv = targetDiv.querySelectorAll('a');
+
+      // 5. Filter the <a> tags based on their text content (now supporting partial match)
+      final List<Element> matchingLinks = allAnchorTagsInDiv.where((anchor) {
+        // Trim whitespace from anchor text and convert both to lowercase for case-insensitive partial matching
+        return anchor.text.trim().toLowerCase().contains(linkTextToFind.toLowerCase());
+      }).toList();
+
+      if (matchingLinks.isEmpty) {
+        stderr.writeln('No <a> tags with text containing "$linkTextToFind" found inside div "$divId".'); // Use stderr for logs
+      } else {
+        stderr.writeln('Found ${matchingLinks.length} matching <a> tags inside div "$divId".'); // Use stderr for logs
+      }
+
+      return matchingLinks;
+    } else {
+      // Handle HTTP error status codes
+      stderr.writeln('Failed to load page: ${response.statusCode}. Status: ${response.statusCode}'); // Use stderr for logs
+      return []; // Return empty list on HTTP error
+    }
+  } catch (e) {
+    // Handle any other errors (e.g., network issues, invalid URL)
+    stderr.writeln('An error occurred: $e'); // Use stderr for logs
+    return []; // Return empty list on general error
+  }
+}
+
+void main() async {
+  // Appwrite function input handling (keeping it for future extensibility)
+  String? inputData = Platform.environment['APPWRITE_FUNCTION_DATA'];
   if (inputData == null || inputData.isEmpty) {
     try {
       inputData = stdin.readLineSync();
     } catch (e) {
-      // Handle error if stdin cannot be read
       stderr.writeln('Error reading from stdin: $e');
       inputData = '{}'; // Default to empty JSON
     }
@@ -47,55 +142,42 @@ void main() {
     }
   }
 
-  String name = requestPayload['name'] ?? 'World';
-  int number = requestPayload['number'] ?? 0;
+  // Use values from payload if provided, otherwise use hardcoded defaults
+  const String defaultTargetUrl = 'https://gug.digitaluniversity.ac/results';
+  const String defaultDivIdToSearch = 'v-pills-all-2';
+  const String defaultLinkTextToMatch = 'M.Tech';
 
-  // Perform some processing
-  String greeting = 'Hello, $name! You provided the number: ${number * 2}.';
-  
+  String targetUrl = requestPayload['url'] ?? defaultTargetUrl;
+  String divIdToSearch = requestPayload['divId'] ?? defaultDivIdToSearch;
+  String linkTextToMatch = requestPayload['linkText'] ?? defaultLinkTextToMatch;
+
+  List<Element> foundLinks = await findSpecificLinksInDiv(targetUrl, divIdToSearch, linkTextToMatch);
+
+  String resultString;
+  List<Map<String, String>> linksDetails = [];
+
+  if (foundLinks.isNotEmpty) {
+    resultString = 'Found links matching the criteria.';
+    for (var link in foundLinks) {
+      linksDetails.add({'text': link.text.trim(), 'href': link.attributes['href'] ?? 'N/A'});
+    }
+  } else {
+    resultString = 'No links found matching the criteria.';
+  }
+
+  // Prepare the final JSON response
   Map<String, dynamic> response = {
-    'message': greeting,
-    'originalName': name,
-    'processedNumber': number * 2,
+    'status': 'success',
+    'message': resultString,
+    'query_parameters': {
+      'url': targetUrl,
+      'divId': divIdToSearch,
+      'linkText': linkTextToMatch,
+    },
+    'found_links': linksDetails,
     'timestamp': DateTime.now().toIso8601String(),
-    'status': 'success'
   };
 
   // Encode the response map to a JSON string and print it to stdout.
-  // Appwrite captures this stdout as the function's response.
   stdout.writeln(json.encode(response));
-}
-
-Explanation of the Dart Code:
-import 'dart:io';: Used to access Platform.environment for reading environment variables and stdin/stdout for input/output.
-
-import 'dart:convert';: Essential for encoding Dart objects into JSON strings (json.encode) and decoding JSON strings into Dart objects (json.decode).
-
-main() function: This is the entry point for your Dart function.
-
-Reading Input: The code attempts to read input from APPWRITE_FUNCTION_DATA (typical for GET requests or CLI execution) or stdin (for POST request bodies). It then parses this input as JSON.
-
-Processing: Simple string concatenation and multiplication are performed.
-
-Returning JSON: A Dart Map<String, dynamic> is created with the desired output data. This map is then converted into a JSON string using json.encode() and printed to stdout using stdout.writeln(). Appwrite will then send this as the HTTP response.
-
-Deploying to Appwrite
-To deploy this function to Appwrite:
-
-Save the file: Save the code above as main.dart in a new directory (e.g., my_dart_function).
-
-Initialize Appwrite Function: Use the Appwrite CLI to initialize a new function in your project, selecting Dart as the runtime.
-
-Upload: Deploy your function using the Appwrite CLI.
-
-Configure: Set up variables, execution permissions, and events (if any) in the Appwrite console.
-
-When you execute this function (e.g., via a direct HTTP request using the Appwrite SDK or API), it will return a JSON response similar to this:
-
-{
-  "message": "Hello, John Doe! You provided the number: 200.",
-  "originalName": "John Doe",
-  "processedNumber": 200,
-  "timestamp": "2025-06-24T11:30:00.000Z",
-  "status": "success"
 }
